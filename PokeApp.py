@@ -201,6 +201,14 @@ def get_direct_evolutions(pokemon_name):
         return [child['species']['name'] for child in current_node['evolves_to']]
     return []
 
+@st.cache_data
+def get_all_pokemon_names():
+    # Grabs the master list of all Pokémon names for the autocomplete
+    url = "https://pokeapi.co/api/v2/pokemon?limit=1300"
+    r = requests.get(url)
+    if r.status_code == 200:
+        return [p['name'].capitalize() for p in r.json()['results']]
+    return []
 # --- CALLBACK FUNCTIONS ---
 
 def nav_to_details_cb(name):
@@ -253,10 +261,21 @@ with st.sidebar:
     
     st.divider()
     st.subheader("Direct Search")
-    search_query = st.text_input("Pokémon Name:", key="search_query").lower()
+    
+    # 1. Load the master list of names
+    all_pokemon = get_all_pokemon_names()
+    
+    # 2. Use a selectbox for partial search / autocomplete
+    search_query = st.selectbox(
+        "Pokémon Name:", 
+        options=all_pokemon, 
+        index=None, 
+        placeholder="Type a name... (e.g. 'char')"
+    )
+    
     if st.button("Search", use_container_width=True):
         if search_query:
-            nav_to_details_cb(search_query)
+            nav_to_details_cb(search_query.lower())
             st.rerun()
 
 # SCREEN 1: HOME
