@@ -109,6 +109,26 @@ def get_pokemon_locations(pokemon_id):
     return location_data
 
 @st.cache_data
+def get_type_effectiveness(type_list):
+    weaknesses = set()
+    strengths = set()
+    
+    for t in type_list:
+        url = f"https://pokeapi.co/api/v2/type/{t.lower()}"
+        r = requests.get(url)
+        if r.status_code == 200:
+            damage_relations = r.json()['damage_relations']
+            # Types that deal 2x damage TO this Pokémon
+            for w in damage_relations['double_damage_from']:
+                weaknesses.add(w['name'].capitalize())
+            # Types this Pokémon deals 2x damage TO
+            for s in damage_relations['double_damage_to']:
+                strengths.add(s['name'].capitalize())
+    
+    # Remove overlapping (if a dual type is weak to what the other resists, etc.)
+    return sorted(list(weaknesses)), sorted(list(strengths))
+
+@st.cache_data
 def get_pokemon_data(name_or_id):
     url = f"https://pokeapi.co/api/v2/pokemon/{str(name_or_id).lower()}"
     r = requests.get(url)
@@ -234,6 +254,7 @@ elif st.session_state.view == 'gen_view':
 elif st.session_state.view == 'details':
     pokemon_name = st.session_state.selected_pokemon
     
+    # Back button logic
     if st.session_state.selected_gen:
         st.button("⬅ Back to Pokédex", on_click=lambda: setattr(st.session_state, 'view', 'gen_view'))
     else:
@@ -244,11 +265,36 @@ elif st.session_state.view == 'details':
         col1, col2 = st.columns([1, 2])
         with col1:
             st.image(data['sprites']['other']['official-artwork']['front_default'], use_container_width=True)
+        
         with col2:
             st.title(f"#{data['id']} - {data['name'].upper()}")
-            types = [t['type']['name'].capitalize() for t in data['types']]
-            st.subheader(f"Type: {' / '.join(types)}")
+            
+            # Prepare types for effectiveness function
+            types_raw = [t['type']['name'] for t in data['types']]
+            types_cap = [t.capitalize() for t in types_raw]
+            
+            st.subheader(f"Type: {' / '.join(types_cap)}")
             st.write(f"**Height:** {data['height']/10}m | **Weight:** {data['weight']/10}kg")
+            
+            # --- START OF TYPE EFFECTIVENESS ADDITION ---
+            st.divider()
+            weak, strong = get_type_effectiveness(types_raw)
+            
+            eff_col1, eff_col2 = st.columns(2)
+            with eff_col1:
+                st.markdown("🔴 **Weaknesses** (Takes 2x)")
+                if weak:
+                    st.write(", ".join(weak))
+                else:
+                    st.write("None")
+                    
+            with eff_col2:
+                st.markdown("🟢 **Strong Against** (Deals 2x)")
+                if strong:
+                    st.write(", ".join(strong))
+                else:
+                    st.write("None")
+            # --- END OF TYPE EFFECTIVENESS ADDITION ---
             
             st.divider()
             st.subheader("📊 Base Stats")
@@ -258,6 +304,7 @@ elif st.session_state.view == 'details':
                 st.write(f"**{s_name}**: {s_val}")
                 st.progress(min(s_val / 200, 1.0))
 
+        # Catch Locations Section
         st.divider()
         st.header("📍 Where to Catch")
         locations = get_pokemon_locations(data['id'])
@@ -270,6 +317,7 @@ elif st.session_state.view == 'details':
         else:
             st.info("This Pokémon cannot be caught in the wild (evolution, gift, or event).")
 
+        # Evolution Chain Section
         st.divider()
         st.header("🧬 Evolution Chain")
         chain_root = get_evolution_chain(pokemon_name)
@@ -283,6 +331,9 @@ elif st.session_state.view == 'details':
                         is_current = " (Current)" if ev['name'] == pokemon_name.lower() else ""
                         st.image(ev_data['sprites']['front_default'], width=120)
                         st.markdown(f"**{ev['name'].capitalize()}**{is_current}")
-                        if ev['details']: st.info(ev['details'])
+                        if ev['details']: 
+                            st.info(ev['details'])
+        else:
+            st.warning("This Pokémon has no evolution chain.")
     else:
         st.error("Pokémon not found.")
