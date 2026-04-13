@@ -182,6 +182,25 @@ def extract_all_evolutions(chain_node):
         evolutions.extend(extract_all_evolutions(next_evolution))
     return evolutions
 
+def get_direct_evolutions(pokemon_name):
+    chain_root = get_evolution_chain(pokemon_name)
+    if not chain_root: return []
+    
+    # Recursive function to find exactly where our Pokémon is in the family tree
+    def find_node(node, name):
+        if node['species']['name'] == name:
+            return node
+        for child in node['evolves_to']:
+            result = find_node(child, name)
+            if result: return result
+        return None
+        
+    current_node = find_node(chain_root, pokemon_name.lower())
+    # If the Pokémon exists and has an evolution, return the next names
+    if current_node and current_node['evolves_to']:
+        return [child['species']['name'] for child in current_node['evolves_to']]
+    return []
+
 # --- CALLBACK FUNCTIONS ---
 
 def nav_to_details_cb(name):
@@ -197,7 +216,6 @@ def go_home_cb():
     st.session_state.selected_gen = None
     st.session_state.selected_pokemon = None
 
-# TEAM BUILDER CALLBACKS
 def nav_to_team_cb():
     st.session_state.view = 'team'
 
@@ -209,6 +227,10 @@ def remove_from_team(pokemon_name):
     if pokemon_name in st.session_state.team:
         st.session_state.team.remove(pokemon_name)
 
+def evolve_in_team_cb(old_name, new_name):
+    if old_name in st.session_state.team:
+        idx = st.session_state.team.index(old_name)
+        st.session_state.team[idx] = new_name
 
 # --- SESSION STATE INITIALIZATION ---
 if 'view' not in st.session_state:
@@ -396,13 +418,73 @@ elif st.session_state.view == 'team':
     if not st.session_state.team:
         st.info("Your team is currently empty! Search for Pokémon or browse the Pokédex to add some to your squad.")
     else:
-        # Create up to 6 columns for the team
+        # Create dictionaries and sets to hold the combined team data
+        team_weaknesses = {}
+        team_strengths = set()
+        team_resistances = set()
+
+        # 1. Display the Team Roster
         team_cols = st.columns(6)
         for idx, t_name in enumerate(st.session_state.team):
             with team_cols[idx]:
                 with st.container(border=True):
                     t_data = get_pokemon_data(t_name)
                     if t_data:
+                        # Display Pokémon Image & Name
                         st.image(t_data['sprites']['front_default'], use_container_width=True)
                         st.markdown(f"<center><b>{t_data['name'].capitalize()}</b></center>", unsafe_allow_html=True)
-                        st.button("Remove", key=f"rm_{t_name}", on_click=remove_from_team, args=(t_name,), use_container_width=True)
+                        
+                        # REMOVE BUTTON (using idx to prevent errors if you have duplicate Pokémon)
+                        st.button("Remove", key=f"rm_{t_name}_{idx}", on_click=remove_from_team, args=(t_name,), use_container_width=True)
+                        
+                        # --- NEW: EVOLVE BUTTON LOGIC ---
+                        next_evos = get_direct_evolutions(t_name)
+                        if next_evos:
+                            if len(next_evos) == 1:
+                                # Standard evolution (e.g., Charmander -> Charmeleon)
+                                st.button("✨ Evolve", key=f"ev_{t_name}_{idx}", on_click=evolve_in_team_cb, args=(t_name, next_evos[0]), use_container_width=True)
+                            else:
+                                # Split evolution (e.g., Eevee, Gloom, Poliwhirl)
+                                evo_choice = st.selectbox("Evolve to:", [e.capitalize() for e in next_evos], key=f"sel_{t_name}_{idx}")
+                                st.button("✨ Evolve", key=f"ev_split_{t_name}_{idx}", on_click=evolve_in_team_cb, args=(t_name, evo_choice.lower()), use_container_width=True)
+                        
+                        # --- Gather type data for Team Analysis ---
+                        types_raw = [t['type']['name'] for t in t_data['types']]
+                        weak, strong, advantages = get_type_effectiveness(types_raw)
+                        
+                        for w in weak: team_weaknesses[w] = team_weaknesses.get(w, 0) + 1
+                        for s in strong: team_strengths.add(s)
+                        for a in advantages: team_resistances.add(a)
+
+        # 2. Display the Team Type Analysis
+        st.divider()
+        st.header("📊 Team Type Synergy")
+        
+        t_col1, t_col2, t_col3 = st.columns(3)
+        
+        with t_col1:
+            st.markdown("🔴 **Team Vulnerabilities**")
+            st.caption("How many Pokémon are weak to:")
+            if team_weaknesses:
+                sorted_weaknesses = sorted(team_weaknesses.items(), key=lambda x: x[1], reverse=True)
+                for w_type, count in sorted_weaknesses:
+                    alert = "⚠️ " if count >= 3 else "" 
+                    st.write(f"{alert}**{w_type}**: {count} Pokémon")
+            else:
+                st.write("None")
+                
+        with t_col2:
+            st.markdown("⚔️ **Team Coverage**")
+            st.caption("Types your team deals 2x damage to:")
+            if team_strengths:
+                st.write(", ".join(sorted(list(team_strengths))))
+            else:
+                st.write("None")
+                
+        with t_col3:
+            st.markdown("🛡️ **Team Resistances**")
+            st.caption("Types your team resists (or is immune to):")
+            if team_resistances:
+                st.write(", ".join(sorted(list(team_resistances))))
+            else:
+                st.write("None")
