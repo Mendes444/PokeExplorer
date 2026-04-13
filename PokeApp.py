@@ -135,6 +135,7 @@ def get_type_effectiveness(type_list):
                 advantages.add(f"{imm['name'].capitalize()} (Immune)")
     
     return sorted(list(weaknesses)), sorted(list(strengths)), sorted(list(advantages))
+
 @st.cache_data
 def get_pokemon_data(name_or_id):
     url = f"https://pokeapi.co/api/v2/pokemon/{str(name_or_id).lower()}"
@@ -196,6 +197,19 @@ def go_home_cb():
     st.session_state.selected_gen = None
     st.session_state.selected_pokemon = None
 
+# TEAM BUILDER CALLBACKS
+def nav_to_team_cb():
+    st.session_state.view = 'team'
+
+def add_to_team(pokemon_name):
+    if len(st.session_state.team) < 6 and pokemon_name not in st.session_state.team:
+        st.session_state.team.append(pokemon_name)
+
+def remove_from_team(pokemon_name):
+    if pokemon_name in st.session_state.team:
+        st.session_state.team.remove(pokemon_name)
+
+
 # --- SESSION STATE INITIALIZATION ---
 if 'view' not in st.session_state:
     st.session_state.view = 'home'
@@ -203,12 +217,17 @@ if 'selected_pokemon' not in st.session_state:
     st.session_state.selected_pokemon = None
 if 'selected_gen' not in st.session_state:
     st.session_state.selected_gen = None
+if 'team' not in st.session_state:
+    st.session_state.team = [] # Initialize empty team
 
 # --- INTERFACE ---
 
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/9/98/International_Pok%C3%A9mon_logo.svg")
     st.button("🏠 Home / Generations", on_click=go_home_cb, use_container_width=True)
+    
+    # NEW TEAM BUILDER BUTTON IN SIDEBAR
+    st.button(f"🎒 My Team ({len(st.session_state.team)}/6)", on_click=nav_to_team_cb, use_container_width=True)
     
     st.divider()
     st.subheader("Direct Search")
@@ -282,6 +301,17 @@ elif st.session_state.view == 'details':
                 
             st.image(img_url, use_container_width=True)
             # --- END OF SHINY TOGGLE ADDITION ---
+
+            # --- START OF TEAM BUILDER BUTTON ---
+            st.divider()
+            in_team = data['name'] in st.session_state.team
+            if in_team:
+                st.button("❌ Remove from Team", on_click=remove_from_team, args=(data['name'],), use_container_width=True)
+            elif len(st.session_state.team) < 6:
+                st.button("➕ Add to Team", on_click=add_to_team, args=(data['name'],), use_container_width=True)
+            else:
+                st.button("⚠️ Team Full (6/6)", disabled=True, use_container_width=True)
+            # --- END OF TEAM BUILDER BUTTON ---
         
         with col2:
             st.title(f"#{data['id']} - {data['name'].upper()}")
@@ -355,3 +385,24 @@ elif st.session_state.view == 'details':
             st.warning("This Pokémon has no evolution chain.")
     else:
         st.error("Pokémon not found.")
+
+# SCREEN 4: TEAM BUILDER SCREEN
+elif st.session_state.view == 'team':
+    st.title("🎒 My Pokémon Team")
+    st.button("⬅ Back to Home", on_click=go_home_cb)
+    
+    st.divider()
+    
+    if not st.session_state.team:
+        st.info("Your team is currently empty! Search for Pokémon or browse the Pokédex to add some to your squad.")
+    else:
+        # Create up to 6 columns for the team
+        team_cols = st.columns(6)
+        for idx, t_name in enumerate(st.session_state.team):
+            with team_cols[idx]:
+                with st.container(border=True):
+                    t_data = get_pokemon_data(t_name)
+                    if t_data:
+                        st.image(t_data['sprites']['front_default'], use_container_width=True)
+                        st.markdown(f"<center><b>{t_data['name'].capitalize()}</b></center>", unsafe_allow_html=True)
+                        st.button("Remove", key=f"rm_{t_name}", on_click=remove_from_team, args=(t_name,), use_container_width=True)
