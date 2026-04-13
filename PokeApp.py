@@ -112,22 +112,29 @@ def get_pokemon_locations(pokemon_id):
 def get_type_effectiveness(type_list):
     weaknesses = set()
     strengths = set()
+    advantages = set() # For defensive resistances
     
     for t in type_list:
         url = f"https://pokeapi.co/api/v2/type/{t.lower()}"
         r = requests.get(url)
         if r.status_code == 200:
             damage_relations = r.json()['damage_relations']
-            # Types that deal 2x damage TO this Pokémon
+            
+            # 1. Weaknesses (Takes 2x damage from)
             for w in damage_relations['double_damage_from']:
                 weaknesses.add(w['name'].capitalize())
-            # Types this Pokémon deals 2x damage TO
+            
+            # 2. Offensive Strengths (Deals 2x damage to)
             for s in damage_relations['double_damage_to']:
                 strengths.add(s['name'].capitalize())
+            
+            # 3. Defensive Advantages (Takes 0.5x damage or 0x damage)
+            for res in damage_relations['half_damage_from']:
+                advantages.add(res['name'].capitalize())
+            for imm in damage_relations['no_damage_from']:
+                advantages.add(f"{imm['name'].capitalize()} (Immune)")
     
-    # Remove overlapping (if a dual type is weak to what the other resists, etc.)
-    return sorted(list(weaknesses)), sorted(list(strengths))
-
+    return sorted(list(weaknesses)), sorted(list(strengths)), sorted(list(advantages))
 @st.cache_data
 def get_pokemon_data(name_or_id):
     url = f"https://pokeapi.co/api/v2/pokemon/{str(name_or_id).lower()}"
@@ -276,24 +283,25 @@ elif st.session_state.view == 'details':
             st.subheader(f"Type: {' / '.join(types_cap)}")
             st.write(f"**Height:** {data['height']/10}m | **Weight:** {data['weight']/10}kg")
             
-            # --- START OF TYPE EFFECTIVENESS ADDITION ---
+            # --- START OF UPDATED TYPE EFFECTIVENESS (Weakness, Offensive Strength, Defensive Advantage) ---
             st.divider()
-            weak, strong = get_type_effectiveness(types_raw)
+            weak, strong, advantages = get_type_effectiveness(types_raw)
             
-            eff_col1, eff_col2 = st.columns(2)
+            eff_col1, eff_col2, eff_col3 = st.columns(3)
             with eff_col1:
-                st.markdown("🔴 **Weaknesses** (Takes 2x)")
-                if weak:
-                    st.write(", ".join(weak))
-                else:
-                    st.write("None")
+                st.markdown("🔴 **Weaknesses**")
+                st.caption("Takes 2x damage")
+                st.write(", ".join(weak) if weak else "None")
                     
             with eff_col2:
-                st.markdown("🟢 **Strong Against** (Deals 2x)")
-                if strong:
-                    st.write(", ".join(strong))
-                else:
-                    st.write("None")
+                st.markdown("⚔️ **Offensive Strength**")
+                st.caption("Deals 2x damage")
+                st.write(", ".join(strong) if strong else "None")
+
+            with eff_col3:
+                st.markdown("🛡️ **Defensive Advantages**")
+                st.caption("Takes 0.5x or 0x damage")
+                st.write(", ".join(advantages) if advantages else "None")
             # --- END OF TYPE EFFECTIVENESS ADDITION ---
             
             st.divider()
