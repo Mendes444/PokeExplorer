@@ -269,6 +269,7 @@ elif st.session_state.view == 'details':
 
     data = get_pokemon_data(pokemon_name)
     if data:
+        col1, col2 = st.columns([1, 2])
         with col1:
             # --- START OF SHINY TOGGLE ADDITION ---
             is_shiny = st.toggle("✨ Show Shiny")
