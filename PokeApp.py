@@ -209,6 +209,22 @@ def get_all_pokemon_names():
     if r.status_code == 200:
         return [p['name'].capitalize() for p in r.json()['results']]
     return []
+@st.cache_data
+def get_game_pokedex(version_group_name):
+    # Gets the pokedex for a specific game version
+    url = f"https://pokeapi.co/api/v2/version-group/{version_group_name}"
+    r = requests.get(url)
+    if r.status_code == 200:
+        pokedexes = r.json().get('pokedexes', [])
+        if pokedexes:
+            # Fetch the actual list of Pokémon in this game's regional pokedex
+            dex_url = pokedexes[0]['url']
+            dex_r = requests.get(dex_url)
+            if dex_r.status_code == 200:
+                entries = dex_r.json().get('pokemon_entries', [])
+                # Reformat to match our generation data structure
+                return [{"name": e['pokemon_species']['name'], "url": e['pokemon_species']['url']} for e in entries]
+    return []
 # --- CALLBACK FUNCTIONS ---
 
 def nav_to_details_cb(name):
@@ -217,12 +233,20 @@ def nav_to_details_cb(name):
 
 def nav_to_gen_cb(gen_id):
     st.session_state.selected_gen = gen_id
+    st.session_state.selected_game_id = None # Clear game
     st.session_state.view = 'gen_view'
+
+def nav_to_game_cb(game_id, game_name):
+    st.session_state.selected_game_id = game_id
+    st.session_state.selected_game_name = game_name
+    st.session_state.selected_gen = None # Clear gen
+    st.session_state.view = 'game_view'
 
 def go_home_cb():
     st.session_state.view = 'home'
     st.session_state.selected_gen = None
     st.session_state.selected_pokemon = None
+    st.session_state.selected_game_id = None
 
 def nav_to_team_cb():
     st.session_state.view = 'team'
@@ -235,20 +259,13 @@ def remove_from_team(pokemon_name):
     if pokemon_name in st.session_state.team:
         st.session_state.team.remove(pokemon_name)
 
-def evolve_in_team_cb(old_name, new_name):
-    if old_name in st.session_state.team:
-        idx = st.session_state.team.index(old_name)
-        st.session_state.team[idx] = new_name
-
 # --- SESSION STATE INITIALIZATION ---
-if 'view' not in st.session_state:
-    st.session_state.view = 'home'
-if 'selected_pokemon' not in st.session_state:
-    st.session_state.selected_pokemon = None
-if 'selected_gen' not in st.session_state:
-    st.session_state.selected_gen = None
-if 'team' not in st.session_state:
-    st.session_state.team = [] # Initialize empty team
+if 'view' not in st.session_state: st.session_state.view = 'home'
+if 'selected_pokemon' not in st.session_state: st.session_state.selected_pokemon = None
+if 'selected_gen' not in st.session_state: st.session_state.selected_gen = None
+if 'selected_game_id' not in st.session_state: st.session_state.selected_game_id = None
+if 'selected_game_name' not in st.session_state: st.session_state.selected_game_name = None
+if 'team' not in st.session_state: st.session_state.team = []
 
 # --- INTERFACE ---
 
@@ -280,22 +297,43 @@ with st.sidebar:
 
 # SCREEN 1: HOME
 if st.session_state.view == 'home':
-    st.title("🏛️ Explore by Generation")
-    gens = [
-        ("Generation 1", "Kanto"), ("Generation 2", "Johto"), ("Generation 3", "Hoenn"),
-        ("Generation 4", "Sinnoh"), ("Generation 5", "Unova"), ("Generation 6", "Kalos"),
-        ("Generation 7", "Alola"), ("Generation 8", "Galar"), ("Generation 9", "Paldea")
-    ]
+    st.title("🏛️ Explore Pokémon")
     
-    cols = st.columns(3)
-    for i, (g_name, region) in enumerate(gens):
-        with cols[i % 3]:
-            with st.container(border=True):
-                st.subheader(g_name)
-                st.write(f"Region: **{region}**")
-                st.button(f"Open {region}", key=f"gen_btn_{i+1}", 
-                          on_click=nav_to_gen_cb, args=(i+1,), 
-                          use_container_width=True)
+    # Create Tabs!
+    tab1, tab2 = st.tabs(["📚 By Generation", "🎮 By Game"])
+    
+    with tab1:
+        gens = [
+            ("Generation 1", "Kanto"), ("Generation 2", "Johto"), ("Generation 3", "Hoenn"),
+            ("Generation 4", "Sinnoh"), ("Generation 5", "Unova"), ("Generation 6", "Kalos"),
+            ("Generation 7", "Alola"), ("Generation 8", "Galar"), ("Generation 9", "Paldea")
+        ]
+        cols = st.columns(3)
+        for i, (g_name, region) in enumerate(gens):
+            with cols[i % 3]:
+                with st.container(border=True):
+                    st.subheader(g_name)
+                    st.write(f"Region: **{region}**")
+                    st.button(f"Open {region}", key=f"gen_btn_{i+1}", 
+                              on_click=nav_to_gen_cb, args=(i+1,), 
+                              use_container_width=True)
+                              
+    with tab2:
+        games = [
+            ("Red & Blue", "red-blue"), ("Gold & Silver", "gold-silver"), 
+            ("Ruby & Sapphire", "ruby-sapphire"), ("Diamond & Pearl", "diamond-pearl"),
+            ("Black & White", "black-white"), ("X & Y", "x-y"), 
+            ("Sun & Moon", "sun-moon"), ("Sword & Shield", "sword-shield"),
+            ("Scarlet & Violet", "scarlet-violet")
+        ]
+        g_cols = st.columns(3)
+        for i, (g_title, g_id) in enumerate(games):
+            with g_cols[i % 3]:
+                with st.container(border=True):
+                    st.subheader(g_title)
+                    st.button(f"Play {g_title}", key=f"game_btn_{i}", 
+                              on_click=nav_to_game_cb, args=(g_id, g_title), 
+                              use_container_width=True)
 
 # SCREEN 2: GENERATION POKÉDEX
 elif st.session_state.view == 'gen_view':
@@ -317,6 +355,29 @@ elif st.session_state.view == 'gen_view':
                       on_click=nav_to_details_cb, args=(p_name,), 
                       use_container_width=True)
 
+# SCREEN 2.5: GAME VERSION POKÉDEX (NEW!)
+elif st.session_state.view == 'game_view':
+    g_id = st.session_state.selected_game_id
+    g_name = st.session_state.selected_game_name
+    st.title(f"🎮 Pokédex - {g_name}")
+    st.button("⬅ Back", on_click=go_home_cb)
+    
+    pokemon_list = get_game_pokedex(g_id)
+    if not pokemon_list:
+        st.warning("Pokédex data not found for this game.")
+    else:
+        pcols = st.columns(6)
+        for idx, p in enumerate(pokemon_list):
+            with pcols[idx % 6]:
+                p_name = p['name']
+                p_id = p['url'].split('/')[-2]
+                img_url = f"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{p_id}.png"
+                
+                st.caption(f"No. {p_id}")
+                st.image(img_url, use_container_width=True)
+                st.button(p_name.capitalize(), key=f"gp_{p_id}_{idx}", 
+                          on_click=nav_to_details_cb, args=(p_name,), 
+                          use_container_width=True)
 # SCREEN 3: DETAILS & EVOLUTION
 elif st.session_state.view == 'details':
     pokemon_name = st.session_state.selected_pokemon
