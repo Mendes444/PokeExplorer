@@ -269,9 +269,18 @@ elif st.session_state.view == 'details':
 
     data = get_pokemon_data(pokemon_name)
     if data:
-        col1, col2 = st.columns([1, 2])
         with col1:
-            st.image(data['sprites']['other']['official-artwork']['front_default'], use_container_width=True)
+            # --- START OF SHINY TOGGLE ADDITION ---
+            is_shiny = st.toggle("✨ Show Shiny")
+            
+            if is_shiny:
+                # Try to get the high-res shiny artwork, fallback to standard shiny sprite if it's missing
+                img_url = data['sprites']['other']['official-artwork'].get('front_shiny') or data['sprites']['front_shiny']
+            else:
+                img_url = data['sprites']['other']['official-artwork']['front_default']
+                
+            st.image(img_url, use_container_width=True)
+            # --- END OF SHINY TOGGLE ADDITION ---
         
         with col2:
             st.title(f"#{data['id']} - {data['name'].upper()}")
