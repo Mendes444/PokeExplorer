@@ -1,0 +1,288 @@
+import streamlit as st
+import requests
+
+# Page Configuration
+st.set_page_config(
+    page_title="PokéExplorer", 
+    layout="wide", 
+    page_icon="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png"
+)
+
+# --- CUSTOM STYLING (Pokémon Vibe & Black Sidebar Text) ---
+st.markdown("""
+    <style>
+    /* Main background */
+    .stApp {
+        background: linear-gradient(rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.8)), 
+                    url("https://www.transparenttextures.com/patterns/cubes.png"),
+                    linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    }
+
+    /* Sidebar background (Dark Blue) */
+    section[data-testid="stSidebar"] {
+        background-color: #3761a8 !important;
+    }
+
+    /* Force Sidebar Text, Labels, and Headers to BLACK */
+    section[data-testid="stSidebar"] .stMarkdown, 
+    section[data-testid="stSidebar"] label, 
+    section[data-testid="stSidebar"] p,
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
+    section[data-testid="stSidebar"] h3 {
+        color: black !important;
+        font-weight: bold !important;
+    }
+
+    /* Input box text color */
+    input {
+        color: black !important;
+    }
+
+    /* Card/Container styling */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        background-color: rgba(255, 255, 255, 0.9);
+        border-radius: 15px;
+        padding: 10px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        border: 2px solid #ffcb05;
+    }
+
+    /* Main Titles color */
+    h1, h2, h3 {
+        color: #3761a8 !important;
+        font-family: 'Verdana', sans-serif;
+    }
+
+    /* Custom Button Style (Yellow/Blue) */
+    .stButton>button {
+        background-color: #ffcb05 !important;
+        color: #3c5aa6 !important;
+        border: 2px solid #3c5aa6 !important;
+        border-radius: 10px !important;
+        font-weight: bold !important;
+        transition: 0.3s;
+    }
+    .stButton>button:hover {
+        background-color: #3c5aa6 !important;
+        color: #ffcb05 !important;
+        transform: scale(1.05);
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- API FUNCTIONS ---
+
+@st.cache_data
+def get_pokemon_locations(pokemon_id):
+    url = f"https://pokeapi.co/api/v2/pokemon/{pokemon_id}/encounters"
+    r = requests.get(url)
+    if r.status_code != 200:
+        return {}
+    
+    encounters = r.json()
+    location_data = {}
+
+    for enc in encounters:
+        location_name = enc['location_area']['name'].replace('-', ' ').title()
+        
+        for version_details in enc.get('version_details', []):
+            game_version = version_details['version']['name'].capitalize()
+            details_list = version_details.get('encounter_details', [])
+            
+            methods = []
+            for det in details_list:
+                method_name = det.get('method', {}).get('name', 'unknown')
+                methods.append(method_name.replace('-', ' '))
+            
+            if not methods:
+                methods = ["Special Encounter"]
+            
+            method_desc = f"{location_name} ({', '.join(set(methods))})"
+            
+            if game_version not in location_data:
+                location_data[game_version] = []
+            
+            if method_desc not in location_data[game_version]:
+                location_data[game_version].append(method_desc)
+            
+    return location_data
+
+@st.cache_data
+def get_pokemon_data(name_or_id):
+    url = f"https://pokeapi.co/api/v2/pokemon/{str(name_or_id).lower()}"
+    r = requests.get(url)
+    return r.json() if r.status_code == 200 else None
+
+@st.cache_data
+def get_gen_data(gen_id):
+    url = f"https://pokeapi.co/api/v2/generation/{gen_id}"
+    r = requests.get(url)
+    if r.status_code == 200:
+        species = r.json()['pokemon_species']
+        species.sort(key=lambda x: int(x['url'].split('/')[-2]))
+        return species
+    return []
+
+def get_evolution_chain(pokemon_name):
+    species_url = f"https://pokeapi.co/api/v2/pokemon-species/{pokemon_name.lower()}"
+    res = requests.get(species_url)
+    if res.status_code != 200: return None
+    chain_url = res.json()['evolution_chain']['url']
+    return requests.get(chain_url).json()['chain']
+
+def extract_all_evolutions(chain_node):
+    evolutions = []
+    name = chain_node['species']['name']
+    details_text = []
+    
+    if chain_node['evolution_details']:
+        det = chain_node['evolution_details'][0]
+        if det.get('min_level'): details_text.append(f"Level {det['min_level']}")
+        if det.get('item'): details_text.append(f"Stone: {det['item']['name'].replace('-', ' ').title()}")
+        if det.get('min_happiness'): details_text.append(f"High Happiness ({det['min_happiness']})")
+        if det.get('min_affection'): details_text.append(f"High Affection ({det['min_affection']})")
+        if det.get('time_of_day'): details_text.append(f"During {det['time_of_day'].capitalize()}")
+        if det.get('known_move_type'): details_text.append(f"Know {det['known_move_type']['name'].capitalize()} move")
+        if det.get('location'): details_text.append(f"At: {det['location']['name'].replace('-', ' ').title()}")
+        if det['trigger']['name'] == 'trade': details_text.append("Trade")
+
+    final_info = " + ".join(details_text) if details_text else ""
+    evolutions.append({"name": name, "details": final_info})
+    
+    for next_evolution in chain_node['evolves_to']:
+        evolutions.extend(extract_all_evolutions(next_evolution))
+    return evolutions
+
+# --- CALLBACK FUNCTIONS ---
+
+def nav_to_details_cb(name):
+    st.session_state.selected_pokemon = name
+    st.session_state.view = 'details'
+
+def nav_to_gen_cb(gen_id):
+    st.session_state.selected_gen = gen_id
+    st.session_state.view = 'gen_view'
+
+def go_home_cb():
+    st.session_state.view = 'home'
+    st.session_state.selected_gen = None
+    st.session_state.selected_pokemon = None
+
+# --- SESSION STATE INITIALIZATION ---
+if 'view' not in st.session_state:
+    st.session_state.view = 'home'
+if 'selected_pokemon' not in st.session_state:
+    st.session_state.selected_pokemon = None
+if 'selected_gen' not in st.session_state:
+    st.session_state.selected_gen = None
+
+# --- INTERFACE ---
+
+with st.sidebar:
+    st.image("https://upload.wikimedia.org/wikipedia/commons/9/98/International_Pok%C3%A9mon_logo.svg")
+    st.button("🏠 Home / Generations", on_click=go_home_cb, use_container_width=True)
+    
+    st.divider()
+    st.subheader("Direct Search")
+    search_query = st.text_input("Pokémon Name:", key="search_query").lower()
+    if st.button("Search", use_container_width=True):
+        if search_query:
+            nav_to_details_cb(search_query)
+            st.rerun()
+
+# SCREEN 1: HOME
+if st.session_state.view == 'home':
+    st.title("🏛️ Explore by Generation")
+    gens = [
+        ("Generation 1", "Kanto"), ("Generation 2", "Johto"), ("Generation 3", "Hoenn"),
+        ("Generation 4", "Sinnoh"), ("Generation 5", "Unova"), ("Generation 6", "Kalos"),
+        ("Generation 7", "Alola"), ("Generation 8", "Galar"), ("Generation 9", "Paldea")
+    ]
+    
+    cols = st.columns(3)
+    for i, (g_name, region) in enumerate(gens):
+        with cols[i % 3]:
+            with st.container(border=True):
+                st.subheader(g_name)
+                st.write(f"Region: **{region}**")
+                st.button(f"Open {region}", key=f"gen_btn_{i+1}", 
+                          on_click=nav_to_gen_cb, args=(i+1,), 
+                          use_container_width=True)
+
+# SCREEN 2: GENERATION POKÉDEX
+elif st.session_state.view == 'gen_view':
+    gen_id = st.session_state.selected_gen
+    st.title(f"📍 Pokédex - Generation {gen_id}")
+    st.button("⬅ Back", on_click=go_home_cb)
+    
+    pokemon_list = get_gen_data(gen_id)
+    pcols = st.columns(6)
+    for idx, p in enumerate(pokemon_list):
+        with pcols[idx % 6]:
+            p_name = p['name']
+            p_id = p['url'].split('/')[-2]
+            img_url = f"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{p_id}.png"
+            
+            st.caption(f"No. {p_id}")
+            st.image(img_url, use_container_width=True)
+            st.button(p_name.capitalize(), key=f"p_{p_id}", 
+                      on_click=nav_to_details_cb, args=(p_name,), 
+                      use_container_width=True)
+
+# SCREEN 3: DETAILS & EVOLUTION
+elif st.session_state.view == 'details':
+    pokemon_name = st.session_state.selected_pokemon
+    
+    if st.session_state.selected_gen:
+        st.button("⬅ Back to Pokédex", on_click=lambda: setattr(st.session_state, 'view', 'gen_view'))
+    else:
+        st.button("⬅ Back to Home", on_click=go_home_cb)
+
+    data = get_pokemon_data(pokemon_name)
+    if data:
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            st.image(data['sprites']['other']['official-artwork']['front_default'], use_container_width=True)
+        with col2:
+            st.title(f"#{data['id']} - {data['name'].upper()}")
+            types = [t['type']['name'].capitalize() for t in data['types']]
+            st.subheader(f"Type: {' / '.join(types)}")
+            st.write(f"**Height:** {data['height']/10}m | **Weight:** {data['weight']/10}kg")
+            
+            st.divider()
+            st.subheader("📊 Base Stats")
+            for stat in data['stats']:
+                s_name = stat['stat']['name'].replace('-', ' ').upper()
+                s_val = stat['base_stat']
+                st.write(f"**{s_name}**: {s_val}")
+                st.progress(min(s_val / 200, 1.0))
+
+        st.divider()
+        st.header("📍 Where to Catch")
+        locations = get_pokemon_locations(data['id'])
+        
+        if locations:
+            for version, spots in locations.items():
+                with st.expander(f"🎮 Pokémon {version}"):
+                    for spot in spots:
+                        st.write(f"• {spot}")
+        else:
+            st.info("This Pokémon cannot be caught in the wild (evolution, gift, or event).")
+
+        st.divider()
+        st.header("🧬 Evolution Chain")
+        chain_root = get_evolution_chain(pokemon_name)
+        if chain_root:
+            evolution_list = extract_all_evolutions(chain_root)
+            ev_cols = st.columns(min(len(evolution_list), 5))
+            for i, ev in enumerate(evolution_list):
+                with ev_cols[i % 5]:
+                    ev_data = get_pokemon_data(ev['name'])
+                    if ev_data:
+                        is_current = " (Current)" if ev['name'] == pokemon_name.lower() else ""
+                        st.image(ev_data['sprites']['front_default'], width=120)
+                        st.markdown(f"**{ev['name'].capitalize()}**{is_current}")
+                        if ev['details']: st.info(ev['details'])
+    else:
+        st.error("Pokémon not found.")
