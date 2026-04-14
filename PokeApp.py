@@ -186,7 +186,7 @@ def get_direct_evolutions(pokemon_name):
     chain_root = get_evolution_chain(pokemon_name)
     if not chain_root: return []
     
-    # Recursive function to find exactly where our Pokémon is in the family tree
+    # Função recursiva para encontrar onde o Pokémon está na árvore de evolução
     def find_node(node, name):
         if node['species']['name'] == name:
             return node
@@ -196,7 +196,7 @@ def get_direct_evolutions(pokemon_name):
         return None
         
     current_node = find_node(chain_root, pokemon_name.lower())
-    # If the Pokémon exists and has an evolution, return the next names
+    # Se o Pokémon existir e tiver evolução, devolve os próximos nomes
     if current_node and current_node['evolves_to']:
         return [child['species']['name'] for child in current_node['evolves_to']]
     return []
@@ -258,6 +258,11 @@ def add_to_team(pokemon_name):
 def remove_from_team(pokemon_name):
     if pokemon_name in st.session_state.team:
         st.session_state.team.remove(pokemon_name)
+
+def evolve_in_team_cb(old_name, new_name):
+    if old_name in st.session_state.team:
+        idx = st.session_state.team.index(old_name)
+        st.session_state.team[idx] = new_name
 
 # --- SESSION STATE INITIALIZATION ---
 if 'view' not in st.session_state: st.session_state.view = 'home'
